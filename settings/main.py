@@ -92,6 +92,14 @@ RECAPTCHA_PUBLIC_KEY = env.str('RECAPTCHA_PUBLIC_KEY', '')
 RECAPTCHA_PRIVATE_KEY = env.str('RECAPTCHA_PRIVATE_KEY', '')
 RECAPTCHA_REQUIRED_SCORE = env.float('RECAPTCHA_REQUIRED_SCORE', 0.75)
 
+# Gemini API key for the exercise suggestion feature (optional)
+# When not set, the feature falls back to rule-based parsing only.
+GEMINI_API_KEY = env.str('GEMINI_API_KEY', '')
+GEMINI_MODEL = env.str('GEMINI_MODEL', 'gemini-2.5-flash-lite')
+# Conservative daily call limit for free-tier usage.
+# Gemini free tier allows ~1500 req/day; we stay well below that.
+GEMINI_MAX_DAILY_CALLS = env.int('GEMINI_MAX_DAILY_CALLS', 100)
+
 # The site's URL (e.g. http://www.my-local-gym.com or http://localhost:8000)
 # This is needed for uploaded files and images (exercise images, etc.) to be
 # properly served.

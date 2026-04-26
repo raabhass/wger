@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% load i18n static %}
+
+{% block title %}{% trans "Exercise Suggestions" %}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-sm-12">
+
+        <p class="text-muted">
+            {% trans "Describe what you want to do and we'll find matching exercises. For example:" %}
+            <em>{% trans "I only have dumbbells and want light biceps exercises" %}</em>
+        </p>
+
+        <form id="suggest-form" class="mb-4" autocomplete="off">
+            {% csrf_token %}
+            <div class="input-group">
+                <textarea
+                    id="suggest-prompt"
+                    name="prompt"
+                    class="form-control"
+                    rows="2"
+                    maxlength="300"
+                    placeholder="{% trans 'e.g. kettlebell exercises for glutes and legs' %}"
+                ></textarea>
+                <button type="submit" class="btn btn-primary" id="suggest-btn">
+                    {% trans "Find exercises" %}
+                </button>
+            </div>
+        </form>
+
+        <!-- Spinner -->
+        <div id="suggest-spinner" class="text-center my-4 d-none">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">{% trans "Loading..." %}</span>
+            </div>
+        </div>
+
+        <!-- Error -->
+        <div id="suggest-error" class="alert alert-danger d-none"></div>
+
+        <!-- Filter explanation + badges -->
+        <div id="suggest-meta" class="d-none mb-3">
+            <p id="suggest-explanation" class="text-muted mb-2 small"></p>
+            <div id="suggest-badges"></div>
+        </div>
+
+        <!-- No results message -->
+        <p id="suggest-empty" class="text-muted d-none">
+            {% trans "No exercises matched. Try rephrasing your prompt." %}
+        </p>
+
+        <!-- Result cards -->
+        <div id="suggest-results" class="row g-3"></div>
+
+    </div>
+</div>
+
+<script>
+(function () {
+    const form        = document.getElementById('suggest-form');
+    const btn         = document.getElementById('suggest-btn');
+    const spinner     = document.getElementById('suggest-spinner');
+    const errorBox    = document.getElementById('suggest-error');
+    const metaBox     = document.getElementById('suggest-meta');
+    const explanation = document.getElementById('suggest-explanation');
+    const badgesBox   = document.getElementById('suggest-badges');
+    const emptyMsg    = document.getElementById('suggest-empty');
+    const results     = document.getElementById('suggest-results');
+
+    function getCsrf() {
+        const el = form.querySelector('[name=csrfmiddlewaretoken]');
+        return el ? el.value : '';
+    }
+
+    function reset() {
+        errorBox.classList.add('d-none');
+        metaBox.classList.add('d-none');
+        emptyMsg.classList.add('d-none');
+        results.innerHTML = '';
+        badgesBox.innerHTML = '';
+    }
+
+    function setLoading(on) {
+        spinner.classList.toggle('d-none', !on);
+        btn.disabled = on;
+    }
+
+    function renderBadges(data) {
+        const badges = [];
+
+        const equipmentNames = {
+            1: 'Barbell', 2: 'SZ-Bar', 3: 'Dumbbell', 4: 'Gym mat',
+            5: 'Swiss Ball', 6: 'Pull-up bar', 7: 'Bodyweight',
+            8: 'Bench', 9: 'Incline bench', 10: 'Kettlebell', 11: 'Resistance band'
+        };
+        const muscleNames = {
+            1: 'Biceps', 2: 'Front delt', 3: 'Serratus', 4: 'Chest',
+            5: 'Triceps', 6: 'Abs', 7: 'Calves', 8: 'Glutes', 9: 'Traps',
+            10: 'Quads', 11: 'Hamstrings', 12: 'Lats', 13: 'Brachialis',
+            14: 'Obliques', 15: 'Soleus', 16: 'Lower back'
+        };
+        const categoryNames = {
+            8: 'Arms', 9: 'Legs', 10: 'Abs', 11: 'Chest',
+            12: 'Back', 13: 'Shoulders', 14: 'Calves', 15: 'Cardio'
+        };
+
+        (data.filters_used.equipment_ids || []).forEach(id => {
+            if (equipmentNames[id])
+                badges.push(`<span class="badge bg-primary me-1">${equipmentNames[id]}</span>`);
+        });
+        (data.filters_used.muscle_ids || []).forEach(id => {
+            if (muscleNames[id])
+                badges.push(`<span class="badge bg-success me-1">${muscleNames[id]}</span>`);
+        });
+        (data.filters_used.category_ids || []).forEach(id => {
+            if (categoryNames[id])
+                badges.push(`<span class="badge bg-secondary me-1">${categoryNames[id]}</span>`);
+        });
+        (data.notes || []).forEach(note => {
+            badges.push(`<span class="badge bg-warning text-dark me-1">${note}</span>`);
+        });
+        (data.filters_used.exclude_muscle_ids || []).forEach(id => {
+            if (muscleNames[id])
+                badges.push(`<span class="badge bg-danger me-1">excluding: ${muscleNames[id]}</span>`);
+        });
+        (data.filters_used.exclude_equipment_ids || []).forEach(id => {
+            if (equipmentNames[id])
+                badges.push(`<span class="badge bg-danger me-1">excluding: ${equipmentNames[id]}</span>`);
+        });
+        if (data.used_llm) {
+            badges.push('<span class="badge bg-info text-dark me-1">AI assisted</span>');
+        }
+
+        badgesBox.innerHTML = badges.join('');
+    }
+
+    function renderCard(ex) {
+        const equipment = ex.equipment.length
+            ? ex.equipment.map(e => `<span class="badge bg-light text-dark border me-1">${e}</span>`).join('')
+            : '<span class="text-muted small">{% trans "No equipment" %}</span>';
+
+        const muscles = ex.muscles.length
+            ? ex.muscles.map(m => `<span class="badge bg-light text-dark border me-1">${m}</span>`).join('')
+            : '';
+
+        const secondary = ex.muscles_secondary.length
+            ? ex.muscles_secondary.map(m =>
+                `<span class="badge bg-light text-muted border me-1" title="{% trans "Secondary muscle" %}">${m} <small>(2°)</small></span>`
+              ).join('')
+            : '';
+
+        return `
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title mb-1">
+                        <a href="${ex.url}" class="text-decoration-none">${ex.name}</a>
+                    </h6>
+                    <span class="badge bg-secondary mb-2">${ex.category}</span>
+                    <div class="mt-1">${equipment}</div>
+                    ${muscles ? `<div class="mt-1">${muscles}</div>` : ''}
+                    ${secondary ? `<div class="mt-1">${secondary}</div>` : ''}
+                </div>
+            </div>
+        </div>`;
+    }
+
+    form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const prompt = document.getElementById('suggest-prompt').value.trim();
+        if (!prompt) return;
+
+        reset();
+        setLoading(true);
+
+        try {
+            const resp = await fetch(window.location.pathname, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCsrf(),
+                },
+                body: JSON.stringify({ prompt }),
+            });
+
+            const data = await resp.json();
+
+            if (!resp.ok) {
+                errorBox.textContent = data.error || '{% trans "An error occurred. Please try again." %}';
+                errorBox.classList.remove('d-none');
+                return;
+            }
+
+            // Show explanation + badges
+            explanation.textContent = data.explanation || '';
+            renderBadges(data);
+            metaBox.classList.remove('d-none');
+
+            if (!data.results || data.results.length === 0) {
+                emptyMsg.classList.remove('d-none');
+                return;
+            }
+
+            results.innerHTML = data.results.map(renderCard).join('');
+
+        } catch (err) {
+            errorBox.textContent = '{% trans "Network error. Please check your connection and try again." %}';
+            errorBox.classList.remove('d-none');
+        } finally {
+            setLoading(false);
+        }
+    });
+})();
+</script>
+{% endblock %}

@@ -103,6 +103,12 @@
                                     {% translate "Exercises" %}
                                 </a>
                             </li>
+                            <li>
+                                <a class="dropdown-item"
+                                   href="{% url 'exercise:exercise:suggest' %}">
+                                    {% translate "Exercise Suggestions" %}
+                                </a>
+                            </li>
 
                             {% if perms.exercises.change_exercise %}
                                 <li class="dropdown-divider"></li>

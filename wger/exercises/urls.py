@@ -29,6 +29,7 @@ from wger.exercises.views import (
     equipment,
     history,
     muscles,
+    suggest,
 )
 
 
@@ -118,7 +119,7 @@ patterns_equipment = [
 patterns_exercise = [
     path(
         'overview/',
-        ReactView.as_view(),
+        ReactView.as_view(template_name='exercise/overview.html'),
         name='overview',
     ),
     path(
@@ -135,6 +136,11 @@ patterns_exercise = [
         'contribute',
         ReactView.as_view(),
         name='contribute',
+    ),
+    path(
+        'suggest/',
+        suggest.ExerciseSuggestView.as_view(),
+        name='suggest',
     ),
 ]
 
