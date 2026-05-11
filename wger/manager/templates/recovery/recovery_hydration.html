@@ -1,0 +1,142 @@
+{% extends "react/react-page.html" %}
+
+{% block content %}
+
+<div class="pt-4 px-4" style="min-height: 650px;">
+    <h1 class="mb-4">
+        Hydration & Recovery
+    </h1>
+    {% if not log_data %}
+        <div class="text-center" style="margin-top: 170px;">
+            <h5>
+                <strong>Nothing here yet...</strong>
+            </h5>
+            <p>
+                Press the action button to begin
+            </p>
+        </div>
+    {% endif %}
+
+{% for data in log_data %}
+    <button
+        type="button"
+        class="card mb-3 shadow-sm w-100 text-start btn btn-light"
+        onclick="window.location.href='{% url 'manager:recovery-hydration-edit' data.log.id %}'"
+        style="max-width: 900px; display: block; padding: 0;"
+    >
+        <div class="card-body">
+
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <div class="fw-bold mb-1">
+                        Recovery Log
+                    </div>
+
+                    <small>
+                        {{ data.log.date }}
+                        •
+                        {{ data.log.water_intake }} ml water
+                        •
+                        {{ data.log.sleep_hours }} hrs sleep
+                        •
+                        Energy {{ data.log.energy_level }}/5
+                    </small>
+                </div>
+            </div>
+
+            {% if data.recommendations %}
+                <div class="mt-2">
+                    {% for recommendation in data.recommendations %}
+                        <div class="small text-muted">
+                            • {{ recommendation }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+        </div>
+    </button>
+{% endfor %}
+</div>
+
+<button
+    class="btn btn-danger rounded-circle shadow"
+    style="
+        position: fixed;
+        bottom: 72px;
+        right: 48px;
+        width: 56px;
+        height: 56px;
+        font-size: 24px;
+        z-index: 999;
+    "
+    data-bs-toggle="modal"
+    data-bs-target="#recoveryModal"
+>
+    +
+</button>
+
+<div class="modal fade" id="recoveryModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content p-4">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    {% if edit_log %}
+                        Edit Recovery Log
+                    {% else %}
+                        Add Recovery Log
+                    {% endif %}
+                </h5>
+
+                <button
+                    type="button"
+                    class="btn-close"
+                    data-bs-dismiss="modal">
+                </button>
+            </div>
+
+            <form method="post">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label>Date</label>
+                        {{ form.date }}
+                    </div>
+                    <div class="mb-3">
+                        <label>Water Intake</label>
+                        {{ form.water_intake }}
+                    </div>
+                    <div class="mb-3">
+                        <label>Hours of Sleep</label>
+                        {{ form.sleep_hours }}
+                    </div>
+                    <div class="mb-3">
+                        <label>Energy Level</label>
+                        {{ form.energy_level }}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button
+                        class="btn btn-primary"
+                        type="submit">
+                        {% if edit_log %}
+                            Save Changes
+                        {% else %}
+                            Save
+                        {% endif %}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+</div>
+{% if edit_log %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const modal = new bootstrap.Modal(document.getElementById("recoveryModal"));
+        modal.show();
+    });
+</script>
+{% endif %}
+{% endblock %}
