@@ -30,6 +30,102 @@
 {#         #}
 {% block content %}
     <div id="{{ div_id }}"></div>
+
+    <!---------temporary, delete code between this comment--------------->
+    <script>
+    window.addEventListener('load', function () {
+        setTimeout(function () {
+            const path = window.location.pathname;
+
+            if (!(path.includes('/routine/') && path.includes('/view'))) {
+                return;
+            }
+
+            if (document.getElementById('custom-recommendation-box')) {
+                return;
+            }
+
+            const routineMatch = path.match(/\/routine\/(\d+)\/view/);
+            if (!routineMatch) {
+                console.log('Recommendation box: routine id not found in URL');
+                return;
+            }
+
+            const routineId = routineMatch[1];
+
+            const pathParts = path.split('/').filter(Boolean);
+            const languageCode = pathParts[0] || 'en';
+
+            const divs = Array.from(document.querySelectorAll('div'));
+            const targetImage = divs.find(div => {
+                const style = div.getAttribute('style') || '';
+                return style.includes('background-image') && style.includes('muscular_system');
+            });
+
+            if (!targetImage || !targetImage.parentNode) {
+                console.log('Recommendation box: target image not found');
+                return;
+            }
+
+            const box = document.createElement('div');
+            box.id = 'custom-recommendation-box';
+            box.style.marginTop = '16px';
+            box.style.padding = '14px';
+            box.style.background = '#f8f9fa';
+            box.style.border = '1px solid #d6d6d6';
+            box.style.borderRadius = '8px';
+            box.style.width = '240px';
+            box.innerHTML =
+                '<div style="font-weight:700; margin-bottom:8px;">Possible Recommendations:</div>' +
+                '<div id="recommendation-content">Loading recommendation...</div>';
+
+            targetImage.parentNode.insertBefore(box, targetImage.nextSibling);
+
+            fetch(`/${languageCode}/routine/${routineId}/workout_recommendations/json/`, {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    const content = document.getElementById('recommendation-content');
+                    if (!content) {
+                        return;
+                    }
+
+                    if (!data.recommendations || data.recommendations.length === 0) {
+                        content.innerHTML = '<div>No recommendations yet. Complete a workout session first.</div>';
+                        return;
+                    }
+
+                    const recommendationHtml = data.recommendations.map(item => `
+                        <div style="margin-bottom:12px;">
+                            <div style="font-weight:600;">${item.exercise_name}</div>
+                            <div style="font-size:14px; color:#444;">${item.message}</div>
+                        </div>
+                    `).join('');
+
+                    content.innerHTML = recommendationHtml;
+                })
+                .catch(error => {
+                    console.error('Recommendation fetch failed:', error);
+                    const content = document.getElementById('recommendation-content');
+                    if (content) {
+                        content.innerHTML = '<div>Could not load recommendations.</div>';
+                    }
+                });
+
+        }, 2000);
+    });
+</script>
+    <!---------temporary, delete code between this comment --------------->
 {% endblock %}
 
 
