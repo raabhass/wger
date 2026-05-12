@@ -5,11 +5,6 @@ from wger.manager.models import WorkoutLog, WorkoutSession
 
 
 def clean_exercise_name(exercise) -> str:
-    """
-    Return only the readable exercise name.
-    Example:
-    'base <uuid> (Crunches)' -> 'Crunches'
-    """
     raw_name = str(exercise)
 
     if "(" in raw_name and ")" in raw_name:
@@ -24,6 +19,7 @@ def clean_exercise_name(exercise) -> str:
 class ProgressionRecommendationService:
     SMALL_WEIGHT_INCREASE = Decimal("2.5")
     LARGE_WEIGHT_INCREASE = Decimal("5.0")
+    DEFAULT_TARGET_REPS = 12
 
     @classmethod
     def get_session_recommendations(cls, session: WorkoutSession) -> list[dict]:
@@ -46,45 +42,65 @@ class ProgressionRecommendationService:
         return recommendations
 
     @classmethod
-    def _build_recommendation_for_exercise(cls, session: WorkoutSession, logs: list[WorkoutLog]) -> dict:
+    def _build_recommendation_for_exercise(
+        cls, session: WorkoutSession, logs: list[WorkoutLog]
+    ) -> dict:
         exercise = logs[0].exercise
         total_sets = len(logs)
+
         successful_sets = 0
         almost_successful_sets = 0
+        failed_sets = 0
         latest_weight = None
 
         for log in logs:
             if log.weight is not None:
                 latest_weight = log.weight
 
-            if log.repetitions is not None and log.repetitions_target is not None:
-                if log.repetitions >= log.repetitions_target:
+            target_reps = log.repetitions_target or cls.DEFAULT_TARGET_REPS
+
+            if log.repetitions is not None:
+                if log.repetitions >= target_reps:
                     successful_sets += 1
-                elif log.repetitions == log.repetitions_target - 1:
+                elif log.repetitions == target_reps - 1:
                     almost_successful_sets += 1
+                elif Decimal(log.repetitions) < Decimal(target_reps) * Decimal("0.5"):
+                    failed_sets += 1
 
         duration_minutes = cls._get_duration_minutes(session)
 
-        # Case 3:
-        # If the workout impression was bad, recommend or slightly reducing weight.
+        # Case 1: Bad impression overrides everything
         if str(session.impression) == "1":
             return {
                 "exercise_id": exercise.id,
                 "exercise_name": clean_exercise_name(exercise),
                 "type": "hold_or_reduce",
-                "message": "If you felt that the excercise was challenging/difficult: Keep the same weight or reduce slightly next session.",
+                "message": "Your workout impression was low. Keep the same weight or reduce slightly next session to focus on recovery and form.",
                 "duration_minutes": duration_minutes,
             }
-        # Case 1:
-        # If all sets were successful, the workout felt GOOD,
-        # and a weight value exists, recommend increasing the weight.
+
+        # Case 2: Very low completed reps also counts as a bad workout
+        if failed_sets > 0:
+            return {
+                "exercise_id": exercise.id,
+                "exercise_name": clean_exercise_name(exercise),
+                "type": "hold_or_reduce",
+                "message": "You were far below the target reps. Keep the same weight or reduce slightly next session to focus on recovery and form.",
+                "duration_minutes": duration_minutes,
+            }
+
+        # Case 3: All sets successful + good impression = increase weight
         if (
             total_sets > 0
             and successful_sets == total_sets
             and str(session.impression) == "3"
             and latest_weight is not None
         ):
-            increase = cls.LARGE_WEIGHT_INCREASE if latest_weight >= Decimal("20") else cls.SMALL_WEIGHT_INCREASE
+            increase = (
+                cls.LARGE_WEIGHT_INCREASE
+                if latest_weight >= Decimal("20")
+                else cls.SMALL_WEIGHT_INCREASE
+            )
             next_weight = latest_weight + increase
 
             return {
@@ -95,23 +111,17 @@ class ProgressionRecommendationService:
                 "duration_minutes": duration_minutes,
             }
 
-        # Case 2:
-        # If every set was either successful or only one rep short,
-        # recommend keeping the same weight and aiming for one more rep.
+        # Case 4: Every set was successful or one rep short = add 1 rep
         if total_sets > 0 and successful_sets + almost_successful_sets == total_sets:
-            increase = cls.LARGE_WEIGHT_INCREASE if latest_weight >= Decimal("20") else cls.SMALL_WEIGHT_INCREASE
-            next_weight = latest_weight + increase
             return {
                 "exercise_id": exercise.id,
                 "exercise_name": clean_exercise_name(exercise),
                 "type": "add_rep",
-                "message": f"Keep the same weight and aim for 1 more rep next session. You can also try increasing the weight to {next_weight} next session.",
+                "message": "Keep the same weight and aim for 1 more rep next session.",
                 "duration_minutes": duration_minutes,
             }
 
-        # Default case:
-        # If performance was not strong enough to progress, and the workout
-        # was not explicitly bad, recommend maintaining the current load.
+        # Default case
         return {
             "exercise_id": exercise.id,
             "exercise_name": clean_exercise_name(exercise),
@@ -127,4 +137,5 @@ class ProgressionRecommendationService:
 
         start_minutes = session.time_start.hour * 60 + session.time_start.minute
         end_minutes = session.time_end.hour * 60 + session.time_end.minute
+
         return end_minutes - start_minutes
