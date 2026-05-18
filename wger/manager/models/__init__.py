@@ -19,6 +19,7 @@ from .abstract_config import AbstractChangeConfig
 from .day import Day
 from .label import Label
 from .log import WorkoutLog
+from .recovery import RecoveryHydrationLog
 from .repetitions_config import (
     MaxRepetitionsConfig,
     RepetitionsConfig,
