@@ -4,6 +4,7 @@ from wger.manager.models import WorkoutSession
 
 def analyze_recovery(log):
 
+    #returns recommendation and possible_actions
     recommendations = []
     possible_actions = []
 
