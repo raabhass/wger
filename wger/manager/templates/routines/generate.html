@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Workout Plan Generator" %}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-sm-12">
+
+        <p class="text-muted">
+            {% trans "Describe the plan you want and review generated options before saving anything." %}
+        </p>
+
+        <form id="plan-generator-form" class="mb-4" autocomplete="off">
+            {% csrf_token %}
+            <div class="input-group">
+                <textarea
+                    id="plan-generator-prompt"
+                    name="prompt"
+                    class="form-control"
+                    rows="2"
+                    maxlength="500"
+                    placeholder="{% trans 'e.g. Create a 3-day home workout plan for fat loss with no gym equipment' %}"
+                ></textarea>
+                <button type="submit" class="btn btn-primary" id="plan-generator-btn">
+                    {% trans "Generate plans" %}
+                </button>
+            </div>
+        </form>
+
+        <div id="plan-generator-spinner" class="text-center my-4 d-none">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">{% trans "Loading..." %}</span>
+            </div>
+        </div>
+
+        <div id="plan-generator-error" class="alert alert-danger d-none"></div>
+
+        <div id="plan-generator-meta" class="d-none mb-3">
+            <p id="plan-generator-explanation" class="text-muted mb-2 small"></p>
+            <div id="plan-generator-badges"></div>
+        </div>
+
+        <p id="plan-generator-empty" class="text-muted d-none">
+            {% trans "No plan options could be generated. Try mentioning equipment, days, or target muscles." %}
+        </p>
+
+        <div id="plan-generator-results" class="row g-3"></div>
+
+    </div>
+</div>
+
+<script>
+(function () {
+    const form = document.getElementById('plan-generator-form');
+    const btn = document.getElementById('plan-generator-btn');
+    const spinner = document.getElementById('plan-generator-spinner');
+    const errorBox = document.getElementById('plan-generator-error');
+    const metaBox = document.getElementById('plan-generator-meta');
+    const explanation = document.getElementById('plan-generator-explanation');
+    const badges = document.getElementById('plan-generator-badges');
+    const emptyMsg = document.getElementById('plan-generator-empty');
+    const results = document.getElementById('plan-generator-results');
+    let generatedOptions = [];
+
+    function getCsrf() {
+        const el = form.querySelector('[name=csrfmiddlewaretoken]');
+        return el ? el.value : '';
+    }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function reset() {
+        errorBox.classList.add('d-none');
+        metaBox.classList.add('d-none');
+        emptyMsg.classList.add('d-none');
+        results.innerHTML = '';
+        badges.innerHTML = '';
+        generatedOptions = [];
+    }
+
+    function setLoading(on) {
+        spinner.classList.toggle('d-none', !on);
+        btn.disabled = on;
+    }
+
+    function renderExercise(exercise) {
+        const equipment = exercise.equipment.length
+            ? exercise.equipment.map(item => `<span class="badge bg-light text-dark border me-1">${escapeHtml(item)}</span>`).join('')
+            : '<span class="text-muted small">{% trans "No equipment" %}</span>';
+
+        return `
+            <li class="list-group-item">
+                <div class="d-flex justify-content-between gap-3">
+                    <div>
+                        <a href="${exercise.url}" class="text-decoration-none">${escapeHtml(exercise.name)}</a>
+                        <div class="small text-muted">${escapeHtml(exercise.category)}</div>
+                        <div class="mt-1">${equipment}</div>
+                    </div>
+                    <div class="text-end small text-nowrap">
+                        <div>${escapeHtml(exercise.sets)} x ${escapeHtml(exercise.reps)}</div>
+                        <div class="text-muted">${escapeHtml(exercise.rest)}</div>
+                    </div>
+                </div>
+            </li>`;
+    }
+
+    function renderDay(day) {
+        const exercises = day.exercises.length
+            ? day.exercises.map(renderExercise).join('')
+            : '<li class="list-group-item text-muted">{% trans "No matching exercises found for this day." %}</li>';
+
+        return `
+            <div class="mb-3">
+                <h6 class="mb-2">${escapeHtml(day.name)}</h6>
+                <ul class="list-group list-group-flush border">${exercises}</ul>
+            </div>`;
+    }
+
+    async function saveOption(index, button) {
+        const option = generatedOptions[index];
+        if (!option) return;
+
+        errorBox.classList.add('d-none');
+        button.disabled = true;
+        button.textContent = '{% trans "Saving..." %}';
+
+        try {
+            const response = await fetch('{% url "manager:routine:generate-save" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCsrf(),
+                },
+                body: JSON.stringify({plan: option}),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                errorBox.textContent = data.error || '{% trans "Could not save this plan." %}';
+                errorBox.classList.remove('d-none');
+                button.disabled = false;
+                button.textContent = '{% trans "Save this plan" %}';
+                return;
+            }
+
+            window.location.href = data.redirect_url;
+        } catch (error) {
+            errorBox.textContent = '{% trans "Network error. Please check your connection and try again." %}';
+            errorBox.classList.remove('d-none');
+            button.disabled = false;
+            button.textContent = '{% trans "Save this plan" %}';
+        }
+    }
+
+    function renderOption(option, index) {
+        return `
+            <div class="col-lg-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body">
+                        <h5 class="card-title">${escapeHtml(option.title)}</h5>
+                        <p class="text-muted small">${escapeHtml(option.summary)}</p>
+                        ${option.days.map(renderDay).join('')}
+                        <button
+                            type="button"
+                            class="btn btn-success w-100 mt-2 js-save-plan"
+                            data-option-index="${index}"
+                        >
+                            {% trans "Save this plan" %}
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    results.addEventListener('click', function (event) {
+        const button = event.target.closest('.js-save-plan');
+        if (!button) return;
+
+        const index = Number(button.dataset.optionIndex);
+        saveOption(index, button);
+    });
+
+    form.addEventListener('submit', async function (event) {
+        event.preventDefault();
+        const prompt = document.getElementById('plan-generator-prompt').value.trim();
+        if (!prompt) return;
+
+        reset();
+        setLoading(true);
+
+        try {
+            const response = await fetch(window.location.pathname, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCsrf(),
+                },
+                body: JSON.stringify({prompt}),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                errorBox.textContent = data.error || '{% trans "An error occurred. Please try again." %}';
+                errorBox.classList.remove('d-none');
+                return;
+            }
+
+            explanation.textContent = data.explanation || '';
+            const modeLabel = data.used_llm
+                ? '{% trans "AI-assisted interpretation" %}'
+                : '{% trans "Rule-based interpretation" %}';
+            const badgeClass = data.used_llm ? 'bg-info text-dark' : 'bg-secondary';
+            const note = data.llm_note
+                ? `<span class="text-muted small ms-2">${escapeHtml(data.llm_note)}</span>`
+                : '';
+            badges.innerHTML = `<span class="badge ${badgeClass}">${modeLabel}</span>${note}`;
+            metaBox.classList.remove('d-none');
+
+            if (!data.options || data.options.length === 0) {
+                emptyMsg.classList.remove('d-none');
+                return;
+            }
+
+            generatedOptions = data.options;
+            results.innerHTML = data.options.map(renderOption).join('');
+        } catch (error) {
+            errorBox.textContent = '{% trans "Network error. Please check your connection and try again." %}';
+            errorBox.classList.remove('d-none');
+        } finally {
+            setLoading(false);
+        }
+    });
+})();
+</script>
+{% endblock %}

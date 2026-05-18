@@ -60,13 +60,26 @@ patterns_days = [
 patterns_routine = [
     path(
         'overview',
-        ReactView.as_view(login_required=True),
+        ReactView.as_view(
+            login_required=True,
+            template_name='routines/overview.html',
+        ),
         name='overview',
     ),
     path(
         'add',
         ReactView.as_view(login_required=True),
         name='add',
+    ),
+    path(
+        'generate',
+        routine.WorkoutPlanGeneratorView.as_view(),
+        name='generate',
+    ),
+    path(
+        'generate/save',
+        routine.WorkoutPlanSaveView.as_view(),
+        name='generate-save',
     ),
     path(
         '<int:pk>/edit',

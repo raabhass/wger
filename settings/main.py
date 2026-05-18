@@ -99,6 +99,7 @@ GEMINI_MODEL = env.str('GEMINI_MODEL', 'gemini-2.5-flash-lite')
 # Conservative daily call limit for free-tier usage.
 # Gemini free tier allows ~1500 req/day; we stay well below that.
 GEMINI_MAX_DAILY_CALLS = env.int('GEMINI_MAX_DAILY_CALLS', 100)
+ENABLE_WORKOUT_PLAN_LLM = env.bool('ENABLE_WORKOUT_PLAN_LLM', False)
 
 # The site's URL (e.g. http://www.my-local-gym.com or http://localhost:8000)
 # This is needed for uploaded files and images (exercise images, etc.) to be
@@ -283,7 +284,10 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'simple': {
-            'format': 'level={levelname} ts={asctime} module={module} path={pathname} line={lineno} message={message}',
+            'format': (
+                'level={levelname} ts={asctime} module={module} path={pathname} '
+                'line={lineno} message={message}'
+            ),
             'style': '{',
         },
     },

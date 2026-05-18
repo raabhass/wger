@@ -17,16 +17,26 @@
 # Standard Library
 import copy
 import datetime
+import json
 import logging
 from typing import List
 
 # Django
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import (
     HttpResponseForbidden,
     HttpResponseRedirect,
+    JsonResponse,
 )
-from django.shortcuts import get_object_or_404
+from django.shortcuts import (
+    get_object_or_404,
+    render,
+)
+from django.urls import reverse
+from django.utils.translation import get_language
+from django.views import View
 
 # wger
 from wger.manager.models import (
@@ -34,9 +44,119 @@ from wger.manager.models import (
     Routine,
     SlotEntry,
 )
+from wger.manager.services.workout_plan_generator import generate_workout_plan_options
+from wger.manager.services.workout_plan_prompt_parser import parse_workout_plan_prompt
+from wger.manager.services.workout_plan_saver import save_generated_workout_plan
 
 
 logger = logging.getLogger(__name__)
+
+
+class WorkoutPlanGeneratorView(LoginRequiredMixin, View):
+    """
+    GET  /routine/generate  renders the prompt page.
+    POST /routine/generate  returns preview-only workout plan options.
+    """
+
+    template_name = 'routines/generate.html'
+
+    def get(self, request):
+        return render(request, self.template_name)
+
+    def post(self, request):
+        try:
+            body = json.loads(request.body)
+            prompt = body.get('prompt', '').strip()
+        except (json.JSONDecodeError, AttributeError):
+            return JsonResponse({'error': 'Invalid request body.'}, status=400)
+
+        if not prompt:
+            return JsonResponse({'error': 'Prompt is required.'}, status=400)
+
+        if len(prompt) > 500:
+            return JsonResponse({'error': 'Prompt is too long (max 500 characters).'}, status=400)
+
+        parsed = parse_workout_plan_prompt(prompt)
+        options = generate_workout_plan_options(
+            parsed,
+            language=get_language() or 'en',
+        )
+        exercise_count = sum(
+            len(day.get('exercises', []))
+            for option in options
+            for day in option.get('days', [])
+        )
+        if exercise_count < parsed.days and not parsed.used_llm:
+            parsed = parse_workout_plan_prompt(prompt, force_llm=True)
+            options = generate_workout_plan_options(
+                parsed,
+                language=get_language() or 'en',
+            )
+
+        return JsonResponse(
+            {
+                'options': options,
+                'parsed': {
+                    'days': parsed.days,
+                    'goal': parsed.goal,
+                    'equipment_ids': parsed.equipment_ids,
+                    'muscle_ids': parsed.muscle_ids,
+                    'category_ids': parsed.category_ids,
+                    'level': parsed.level,
+                    'notes': parsed.notes,
+                    'confidence': parsed.confidence,
+                    'missing_fields': parsed.missing_fields,
+                    'used_llm': parsed.used_llm,
+                    'llm_note': parsed.llm_note,
+                },
+                'explanation': parsed.explanation,
+                'used_llm': parsed.used_llm,
+                'llm_note': parsed.llm_note,
+            }
+        )
+
+
+class WorkoutPlanSaveView(LoginRequiredMixin, View):
+    """Save a selected generated workout plan as a regular routine."""
+
+    def post(self, request):
+        try:
+            body = json.loads(request.body)
+            plan = body.get('plan')
+        except (json.JSONDecodeError, AttributeError):
+            return JsonResponse({'error': 'Invalid request body.'}, status=400)
+
+        if not isinstance(plan, dict):
+            return JsonResponse({'error': 'A generated plan is required.'}, status=400)
+
+        plan_hash = str(hash(json.dumps(plan, sort_keys=True)))
+        saved_plans = request.session.get('saved_generated_workout_plans', {})
+        existing_routine_id = saved_plans.get(plan_hash)
+        if existing_routine_id:
+            messages.info(request, 'This generated plan was already saved.')
+            return JsonResponse(
+                {
+                    'redirect_url': reverse(
+                        'manager:routine:view',
+                        kwargs={'pk': existing_routine_id},
+                    )
+                }
+            )
+
+        saved_plan = save_generated_workout_plan(request.user, plan)
+        if saved_plan.saved_exercises:
+            messages.success(request, 'Generated workout plan saved.')
+        else:
+            messages.warning(request, 'Routine saved, but no valid exercises were found.')
+
+        for warning in saved_plan.warnings:
+            messages.warning(request, warning)
+
+        saved_plans[plan_hash] = saved_plan.routine.id
+        request.session['saved_generated_workout_plans'] = saved_plans
+        request.session.modified = True
+
+        return JsonResponse({'redirect_url': saved_plan.routine.get_absolute_url()})
 
 
 @login_required

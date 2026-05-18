@@ -1,0 +1,11 @@
+{% extends "react/react-page.html" %}
+{% load i18n %}
+
+{% block content %}
+    <div class="d-flex justify-content-end mb-3">
+        <a href="{% url 'manager:routine:generate' %}" class="btn btn-primary">
+            {% translate "Workout plan generator" %}
+        </a>
+    </div>
+    <div id="{{ div_id }}"></div>
+{% endblock %}
