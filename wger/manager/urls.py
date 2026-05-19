@@ -25,6 +25,7 @@ from wger.manager.views import (
     ical,
     pdf,
     routine,
+    recovery,
 )
 
 
@@ -142,4 +143,6 @@ urlpatterns = [
     path('', include((patterns_routine, 'routine'), namespace='routine')),
     path('templates/', include((patterns_templates, 'template'), namespace='template')),
     path('<int:routine_pk>/day/', include((patterns_days, 'day'), namespace='day')),
+    path('recovery-hydration/', recovery.RecoveryHydrationView.as_view(login_required=True), name='recovery-hydration'),
+    path('recovery-hydration/<int:pk>/edit/', recovery.RecoveryHydrationView.as_view(login_required=True), name='recovery-hydration-edit'),
 ]
